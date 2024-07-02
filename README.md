@@ -50,6 +50,7 @@ utils
 ├─ MerkleProofLib — "Library for verification of Merkle proofs"
 ├─ SignatureCheckerLib — "Library for verification of ECDSA and ERC1271 signatures"
 ├─ ECDSA — "Library for verification of ECDSA signatures"
+├─ P256 — "Gas optimized P256 wrapper"
 ├─ EIP712 — "Contract for EIP-712 typed structured data hashing and signing"
 ├─ DeploylessPredeployQueryer — "Deployless queryer for predeploys"
 ├─ ERC1967Factory — "Factory for deploying and managing ERC1967 proxy contracts"
@@ -60,16 +61,18 @@ utils
 ├─ Base64 — "Library for Base64 encoding and decoding"
 ├─ SSTORE2 — "Library for cheaper reads and writes to persistent storage"
 ├─ CREATE3 — "Deploy to deterministic addresses without an initcode factor"
-├─ LibRLP — "Library for computing contract addresses from their deployer and nonce"
+├─ LibRLP — "Library for RLP encoding and CREATE address computation"
 ├─ LibBit — "Library for bit twiddling and boolean operations"
 ├─ LibZip — "Library for compressing and decompressing bytes"
 ├─ Clone — "Class with helper read functions for clone with immutable args"
 ├─ LibClone — "Minimal proxy library"
 ├─ Initializable — "Initializable mixin for the upgradeable contracts"
 ├─ UUPSUpgradeable — "UUPS proxy mixin"
+├─ UpgradeableBeacon — "Upgradeable beacon for ERC1967 beacon proxies"
 ├─ LibString — "Library for converting numbers into strings and other string operations"
 ├─ LibBitmap — "Library for storage of packed booleans"
 ├─ LibMap — "Library for storage of packed unsigned integers"
+├─ EnumerableSetLib — "Library for managing enumerable sets in storage"
 ├─ MinHeapLib — "Library for managing a min-heap in storage or memory"
 ├─ RedBlackTreeLib — "Library for managing a red-black-tree in storage"
 ├─ ReentrancyGuard — "Reentrancy guard mixin"
@@ -77,10 +80,13 @@ utils
 ├─ GasBurnerLib — "Library for burning gas without reverting"
 ├─ SafeTransferLib — "Safe ERC20/ETH transfer lib that handles missing return values"
 ├─ DynamicBufferLib — "Library for buffers with automatic capacity resizing"
+├─ EfficientHashLib — "Library for efficiently performing keccak256 hashes"
 ├─ MetadataReaderLib — "Library for reading contract metadata robustly"
 ├─ FixedPointMathLib — "Arithmetic library with operations for fixed-point numbers"
 ├─ SafeCastLib — "Library for integer casting that reverts on overflow"
-└─ DateTimeLib — "Library for date time operations"
+├─ DateTimeLib — "Library for date time operations"
+├─ Lifebuoy — "Class that allows for rescue of ETH, ERC20, ERC721 tokens"
+└─ ext — "Utilities for external protocols"
 ```
 
 ## Directories
@@ -140,5 +146,5 @@ This repository is inspired by or directly modified from many sources, primarily
 [ci-shield]: https://img.shields.io/github/actions/workflow/status/vectorized/solady/ci.yml?branch=main&label=build
 [ci-url]: https://github.com/vectorized/solady/actions/workflows/ci.yml
 
-[solidity-shield]: https://img.shields.io/badge/solidity-%3E=0.8.4%20%3C=0.8.25-aa6746
+[solidity-shield]: https://img.shields.io/badge/solidity-%3E=0.8.4%20%3C=0.8.26-aa6746
 [solidity-ci-url]: https://github.com/Vectorized/solady/actions/workflows/ci-all-via-ir.yml

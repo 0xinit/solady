@@ -61,8 +61,11 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
     /// @dev Self ownership detected.
     error SelfOwnDetected();
 
+    /// @dev The function selector is not recognized.
+    error FnSelectorNotRecognized();
+
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
-    /*                         CONSTANTS                          */
+    /*                  CONSTANTS AND IMMUTABLES                  */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @dev The ERC6551 state slot is given by:
@@ -73,6 +76,10 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
     /// with both regular and upgradeable contracts.
     uint256 internal constant _ERC6551_STATE_SLOT =
         0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffb919c7a5;
+
+    /// @dev Caches the chain ID in the deployed bytecode,
+    /// so that in the rare case of a hard fork, `owner` will still work.
+    uint256 private immutable _cachedChainId = block.chainid;
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*              TOKEN-BOUND OWNERSHIP OPERATIONS              */
@@ -98,11 +105,12 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
 
     /// @dev Returns the owner of the contract.
     function owner() public view virtual returns (address result) {
+        uint256 cachedChainId = _cachedChainId;
         /// @solidity memory-safe-assembly
         assembly {
             let m := mload(0x40) // Cache the free memory pointer.
             extcodecopy(address(), 0x00, 0x4d, 0x60)
-            if eq(mload(0x00), chainid()) {
+            if eq(mload(0x00), cachedChainId) {
                 let tokenContract := mload(0x20)
                 // `tokenId` is already at 0x40.
                 mstore(0x20, 0x6352211e) // `ownerOf(uint256)`.
@@ -120,7 +128,15 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
     }
 
     /// @dev Returns if `signer` is an authorized signer.
-    function _isValidSigner(address signer) internal view virtual returns (bool) {
+    /// `extraData` can be anything (e.g. an address, a pointer to a struct / string in memory).
+    function _isValidSigner(address signer, bytes32 extraData, bytes calldata context)
+        internal
+        view
+        virtual
+        returns (bool)
+    {
+        extraData = extraData; // Silence unused variable warning.
+        context = context; // Silence unused variable warning.
         return signer == owner();
     }
 
@@ -134,8 +150,7 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
         virtual
         returns (bytes4 result)
     {
-        context = context; // Silence unused variable warning.
-        bool isValid = _isValidSigner(signer);
+        bool isValid = _isValidSigner(signer, bytes32(0), context);
         /// @solidity memory-safe-assembly
         assembly {
             // `isValid ? bytes4(keccak256("isValidSigner(address,bytes)")) : 0x00000000`.
@@ -144,9 +159,17 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
         }
     }
 
+    /// @dev Returns empty calldata bytes.
+    function _emptyContext() internal pure returns (bytes calldata context) {
+        /// @solidity memory-safe-assembly
+        assembly {
+            context.length := 0
+        }
+    }
+
     /// @dev Requires that the caller is a valid signer (i.e. the owner).
     modifier onlyValidSigner() virtual {
-        if (!_isValidSigner(msg.sender)) revert Unauthorized();
+        if (!_isValidSigner(msg.sender, bytes32(0), _emptyContext())) revert Unauthorized();
         _;
     }
 
@@ -154,23 +177,27 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
     /*                      STATE OPERATIONS                      */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
-    /// @dev Returns the current value of the state counter.
-    function state() public view virtual returns (uint256 result) {
+    /// @dev Returns the current value of the state.
+    function state() public view virtual returns (bytes32 result) {
         /// @solidity memory-safe-assembly
         assembly {
             result := sload(_ERC6551_STATE_SLOT)
         }
     }
 
-    /// @dev Increments the state counter. This modifier is required for every
+    /// @dev Mutates the state. This function is required to be called in every
     /// public / external function that may modify storage or emit events.
-    modifier incrementState() virtual {
+    function _updateState() internal virtual {
         /// @solidity memory-safe-assembly
         assembly {
             let s := _ERC6551_STATE_SLOT
-            sstore(s, add(1, sload(s)))
+            let m := mload(0x40)
+            mstore(m, sload(s))
+            mstore(add(0x20, m), 0x40)
+            mstore(add(0x40, m), calldatasize())
+            calldatacopy(add(0x60, m), 0x00, add(0x20, calldatasize()))
+            sstore(s, keccak256(m, and(add(0x7f, calldatasize()), not(0x1f))))
         }
-        _;
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -194,7 +221,6 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
         payable
         virtual
         onlyValidSigner
-        incrementState
         returns (bytes memory result)
     {
         if (operation != 0) revert OperationNotSupported();
@@ -212,6 +238,7 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
             returndatacopy(o, 0x00, returndatasize()) // Copy the returndata.
             mstore(0x40, add(o, returndatasize())) // Allocate the memory.
         }
+        _updateState();
     }
 
     /// @dev Execute a sequence of calls from this account.
@@ -224,7 +251,6 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
         payable
         virtual
         onlyValidSigner
-        incrementState
         returns (bytes[] memory results)
     {
         if (operation != 0) revert OperationNotSupported();
@@ -254,6 +280,7 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
             }
             mstore(0x40, m) // Allocate the memory.
         }
+        _updateState();
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
@@ -273,17 +300,59 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
     }
 
     /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
+    /*                      INTERNAL HELPERS                      */
+    /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
+
+    /// @dev Returns whether there is an ownership cycle.
+    function _hasOwnershipCycle() internal view virtual returns (bool result) {
+        uint256 cachedChainId = _cachedChainId;
+        /// @solidity memory-safe-assembly
+        assembly {
+            let m := mload(0x40) // Cache the free memory pointer.
+            extcodecopy(address(), 0x00, 0x4d, 0x60) // `(chainId, tokenContract, tokenId)`.
+            mstore(0x60, 0xfc0c546a) // `token()`.
+            for {} 1 {} {
+                let tokenContract := mload(0x20)
+                mstore(0x20, 0x6352211e) // `ownerOf(uint256)`.
+                let currentOwner :=
+                    mul( // `chainId == cachedChainId ? tokenContract.ownerOf(tokenId) : address(0)`.
+                        mload(0x20),
+                        and(
+                            and(gt(returndatasize(), 0x1f), eq(mload(0x00), cachedChainId)),
+                            staticcall(gas(), tokenContract, 0x3c, 0x24, 0x20, 0x20)
+                        )
+                    )
+                if iszero(eq(currentOwner, address())) {
+                    if iszero(
+                        and( // `(chainId, tokenContract, tokenId) = currentOwner.token()`.
+                            gt(returndatasize(), 0x5f),
+                            staticcall(gas(), currentOwner, 0x7c, 0x04, 0x00, 0x60)
+                        )
+                    ) { break }
+                    continue
+                }
+                result := 1
+                break
+            }
+            mstore(0x40, m) // Restore the free memory pointer.
+            mstore(0x60, 0) // Restore the zero pointer.
+        }
+    }
+
+    /*´:°•.°+.*•´.*:˚.°*.˚•´.°:°•.°•.*•´.*:˚.°*.˚•´.°:°•.°+.*•´.*:*/
     /*                         OVERRIDES                          */
     /*.•°:°.´+˚.*°.˚:*.´•*.+°.•°:´*.´•*.•°.•°:°.´:•˚°.*°.˚:*.´+°.•*/
 
     /// @dev To ensure that only the owner or the account itself can upgrade the implementation.
+    /// If you don't need upgradeability, override this function to return false.
     function _authorizeUpgrade(address)
         internal
         virtual
         override(UUPSUpgradeable)
         onlyValidSigner
-        incrementState
-    {}
+    {
+        _updateState();
+    }
 
     /// @dev Uses the `owner` as the ERC1271 signer.
     function _erc1271Signer() internal view virtual override(ERC1271) returns (address) {
@@ -293,50 +362,24 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
     /// @dev For handling token callbacks.
     /// Safe-transferred ERC721 tokens will trigger a ownership cycle check.
     modifier receiverFallback() override(Receiver) {
-        /// @solidity memory-safe-assembly
-        assembly {
-            let s := shr(224, calldataload(0x00))
-            // 0x150b7a02: `onERC721Received(address,address,uint256,bytes)`.
-            if eq(s, 0x150b7a02) {
-                extcodecopy(address(), 0x00, 0x4d, 0x60) // `chainId`, `tokenContract`, `tokenId`.
-                mstore(0x60, 0xfc0c546a) // `token()`.
-                for {} 1 {} {
-                    let tokenContract := mload(0x20)
-                    // `tokenId` is already at 0x40.
-                    mstore(0x20, 0x6352211e) // `ownerOf(uint256)`.
-                    let chainsEq := eq(mload(0x00), chainid())
-                    let currentOwner :=
-                        mul(
-                            mload(0x20),
-                            and(
-                                and(gt(returndatasize(), 0x1f), chainsEq),
-                                staticcall(gas(), tokenContract, 0x3c, 0x24, 0x20, 0x20)
-                            )
-                        )
-                    if iszero(
-                        or(
-                            eq(currentOwner, address()),
-                            and(
-                                and(chainsEq, eq(tokenContract, caller())),
-                                eq(mload(0x40), calldataload(0x44))
-                            )
-                        )
-                    ) {
-                        if iszero(
-                            and(
-                                gt(returndatasize(), 0x5f),
-                                staticcall(gas(), currentOwner, 0x7c, 0x04, 0x00, 0x60)
-                            )
-                        ) {
-                            mstore(0x40, s) // Store `msg.sig`.
-                            return(0x5c, 0x20) // Return `msg.sig`.
-                        }
-                        continue
-                    }
-                    mstore(0x00, 0xaed146d3) // `SelfOwnDetected()`.
-                    revert(0x1c, 0x04)
+        uint256 s = uint256(bytes32(msg.sig)) >> 224;
+        // 0x150b7a02: `onERC721Received(address,address,uint256,bytes)`.
+        if (s == 0x150b7a02) {
+            if (!_hasOwnershipCycle()) {
+                /// @solidity memory-safe-assembly
+                assembly {
+                    mstore(0x20, s) // Store `msg.sig`.
+                    return(0x3c, 0x20) // Return `msg.sig`.
                 }
             }
+            /// @solidity memory-safe-assembly
+            assembly {
+                mstore(0x00, 0xaed146d3) // `SelfOwnDetected()`.
+                revert(0x1c, 0x04)
+            }
+        }
+        /// @solidity memory-safe-assembly
+        assembly {
             // 0xf23a6e61: `onERC1155Received(address,address,uint256,uint256,bytes)`.
             // 0xbc197c81: `onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)`.
             if or(eq(s, 0xf23a6e61), eq(s, 0xbc197c81)) {
@@ -347,10 +390,20 @@ abstract contract ERC6551 is UUPSUpgradeable, Receiver, ERC1271 {
         _;
     }
 
+    /// @dev If you don't need to use `LibZip.cdFallback`, override this function to return false.
+    function _useLibZipCdFallback() internal view virtual returns (bool) {
+        return true;
+    }
+
     /// @dev Handle token callbacks. If no token callback is triggered,
     /// use `LibZip.cdFallback` for generalized calldata decompression.
-    /// If you don't need either, re-override this function.
     fallback() external payable virtual override(Receiver) receiverFallback {
-        LibZip.cdFallback();
+        if (_useLibZipCdFallback()) {
+            // Reverts with out-of-gas by recursing infinitely if the first 4 bytes
+            // of the decompressed `msg.data` doesn't match any function selector.
+            LibZip.cdFallback();
+        } else {
+            revert FnSelectorNotRecognized();
+        }
     }
 }

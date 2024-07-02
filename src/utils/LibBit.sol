@@ -54,15 +54,16 @@ library LibBit {
         /// @solidity memory-safe-assembly
         assembly {
             // Isolate the least significant bit.
-            let b := and(x, add(not(x), 1))
-
-            r := or(shl(8, iszero(x)), shl(7, lt(0xffffffffffffffffffffffffffffffff, b)))
-            r := or(r, shl(6, lt(0xffffffffffffffff, shr(r, b))))
-            r := or(r, shl(5, lt(0xffffffff, shr(r, b))))
-
-            // For the remaining 32 bits, use a De Bruijn lookup.
+            x := and(x, add(not(x), 1))
+            // For the upper 3 bits of the result, use a De Bruijn-like lookup.
+            // Credit to adhusson: https://blog.adhusson.com/cheap-find-first-set-evm/
             // forgefmt: disable-next-item
-            r := or(r, byte(and(div(0xd76453e0, shr(r, b)), 0x1f),
+            r := shl(5, shr(252, shl(shl(2, shr(250, mul(x,
+                0xb6db6db6ddddddddd34d34d349249249210842108c6318c639ce739cffffffff))),
+                0x8040405543005266443200005020610674053026020000107506200176117077)))
+            // For the lower 5 bits of the result, use a De Bruijn lookup.
+            // forgefmt: disable-next-item
+            r := or(r, byte(and(div(0xd76453e0, shr(r, x)), 0x1f),
                 0x001f0d1e100c1d070f090b19131c1706010e11080a1a141802121b1503160405))
         }
     }
@@ -104,7 +105,7 @@ library LibBit {
     function reverseBytes(uint256 x) internal pure returns (uint256 r) {
         unchecked {
             // Computing masks on-the-fly reduces bytecode size by about 200 bytes.
-            uint256 m0 = 0x100000000000000000000000000000001 * (~toUint(x == 0) >> 192);
+            uint256 m0 = 0x100000000000000000000000000000001 * (~toUint(x == uint256(0)) >> 192);
             uint256 m1 = m0 ^ (m0 << 32);
             uint256 m2 = m1 ^ (m1 << 16);
             uint256 m3 = m2 ^ (m2 << 8);
